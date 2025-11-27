@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useChat } from "ai/react";
 import { ErrorDisplay } from "./ErrorDisplay";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // Metric card component for dashboard
 function MetricCard({
@@ -314,8 +316,203 @@ export default function Chat() {
                       <div className="space-y-3">
                         {/* Text content */}
                         {message.content && (
-                          <div className="whitespace-pre-wrap leading-relaxed">
-                            {message.content}
+                          <div
+                            className={`prose prose-sm max-w-none ${
+                              message.role === "user"
+                                ? "prose-invert text-white! *:text-white!"
+                                : "prose-slate"
+                            }`}
+                          >
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                table: ({ children }) => (
+                                  <div className="my-4 overflow-x-auto rounded-lg shadow-lg border border-gray-200">
+                                    <table className="min-w-full divide-y divide-gray-200 bg-white">
+                                      {children}
+                                    </table>
+                                  </div>
+                                ),
+                                thead: ({ children }) => (
+                                  <thead className="bg-gradient-to-r from-blue-600 to-purple-600">
+                                    {children}
+                                  </thead>
+                                ),
+                                th: ({ children }) => (
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">
+                                    {children}
+                                  </th>
+                                ),
+                                tbody: ({ children }) => (
+                                  <tbody className="divide-y divide-gray-200">
+                                    {children}
+                                  </tbody>
+                                ),
+                                tr: ({ children }) => (
+                                  <tr className="hover:bg-blue-50 transition-colors">
+                                    {children}
+                                  </tr>
+                                ),
+                                td: ({ children }) => (
+                                  <td className="px-4 py-3 text-sm text-gray-900">
+                                    {children}
+                                  </td>
+                                ),
+                                h1: ({ children }) => (
+                                  <h1
+                                    className={`text-2xl font-bold mb-3 mt-6 ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : "text-gray-900"
+                                    }`}
+                                  >
+                                    {children}
+                                  </h1>
+                                ),
+                                h2: ({ children }) => (
+                                  <h2
+                                    className={`text-xl font-bold mb-2 mt-5 ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : "text-gray-800"
+                                    }`}
+                                  >
+                                    {children}
+                                  </h2>
+                                ),
+                                h3: ({ children }) => (
+                                  <h3
+                                    className={`text-lg font-semibold mb-2 mt-4 ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : "text-gray-800"
+                                    }`}
+                                  >
+                                    {children}
+                                  </h3>
+                                ),
+                                p: ({ children }) => (
+                                  <p
+                                    className={`mb-3 leading-relaxed ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : ""
+                                    }`}
+                                  >
+                                    {children}
+                                  </p>
+                                ),
+                                ul: ({ children }) => (
+                                  <ul
+                                    className={`list-disc list-inside space-y-1 mb-3 ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : ""
+                                    }`}
+                                  >
+                                    {children}
+                                  </ul>
+                                ),
+                                ol: ({ children }) => (
+                                  <ol
+                                    className={`list-decimal list-inside space-y-1 mb-3 ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : ""
+                                    }`}
+                                  >
+                                    {children}
+                                  </ol>
+                                ),
+                                li: ({ children }) => (
+                                  <li
+                                    className={
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : "text-gray-700"
+                                    }
+                                  >
+                                    {children}
+                                  </li>
+                                ),
+                                strong: ({ children }) => (
+                                  <strong
+                                    className={`font-bold ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : "text-gray-900"
+                                    }`}
+                                  >
+                                    {children}
+                                  </strong>
+                                ),
+                                em: ({ children }) => (
+                                  <em
+                                    className={`italic ${
+                                      message.role === "user"
+                                        ? "text-white"
+                                        : "text-gray-700"
+                                    }`}
+                                  >
+                                    {children}
+                                  </em>
+                                ),
+                                code: ({ children, className }) => {
+                                  const isInline = !className;
+                                  return isInline ? (
+                                    <code
+                                      className={
+                                        message.role === "user"
+                                          ? "px-1.5 py-0.5 bg-white/20 text-white rounded text-xs font-mono"
+                                          : "px-1.5 py-0.5 bg-gray-100 text-pink-600 rounded text-xs font-mono"
+                                      }
+                                    >
+                                      {children}
+                                    </code>
+                                  ) : (
+                                    <code className="block bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono my-3">
+                                      {children}
+                                    </code>
+                                  );
+                                },
+                                blockquote: ({ children }) => (
+                                  <blockquote
+                                    className={
+                                      message.role === "user"
+                                        ? "border-l-4 border-white/50 bg-white/10 pl-4 py-2 italic text-white my-3 rounded-r-lg"
+                                        : "border-l-4 border-blue-500 bg-blue-50 pl-4 py-2 italic text-gray-700 my-3 rounded-r-lg"
+                                    }
+                                  >
+                                    {children}
+                                  </blockquote>
+                                ),
+                                hr: () => (
+                                  <hr
+                                    className={
+                                      message.role === "user"
+                                        ? "my-6 border-white/30"
+                                        : "my-6 border-gray-300"
+                                    }
+                                  />
+                                ),
+                                a: ({ children, href }) => (
+                                  <a
+                                    href={href}
+                                    className={
+                                      message.role === "user"
+                                        ? "text-white underline font-medium hover:text-white/80"
+                                        : "text-blue-600 hover:text-blue-800 underline font-medium"
+                                    }
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    {children}
+                                  </a>
+                                ),
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
                           </div>
                         )}
 
