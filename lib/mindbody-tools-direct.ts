@@ -20,7 +20,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getClients: tool({
       description:
-        "Get a list of clients based on search criteria. Use searchText to find clients by name, email, or phone.",
+        "⭐ PRIMARY TOOL - Get a list of clients and their IDs. ALWAYS call this FIRST before using any other client-specific tools. For queries like 'find clients who...' or 'list clients that...', start here to get the client IDs, then use those IDs with other tools. Use searchText to find clients by name, email, or phone. 🔴 IMPORTANT: When user asks for 'new clients' or 'recent clients' or clients from 'last X days/weeks/months', you MUST pass lastModifiedDate parameter with appropriate ISO timestamp (e.g., for last 30 days: new Date(Date.now() - 30*24*60*60*1000).toISOString()). This tool returns client IDs needed for all other client-specific operations.",
       parameters: z.object({
         searchText: z
           .string()
@@ -30,14 +30,16 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
           .array(z.string())
           .optional()
           .describe("Specific client IDs to retrieve"),
+        includeInactive: z
+          .boolean()
+          .optional()
+          .describe("If true, includes inactive clients (default: false)"),
         lastModifiedDate: z
           .string()
           .optional()
-          .describe("Filter by last modified date (ISO 8601)"),
-        limit: z
-          .number()
-          .optional()
-          .describe("Maximum number of results (default: 100)"),
+          .describe(
+            "Filter for clients created or modified AFTER this date (ISO 8601 format). Use this to find new/recent clients. Example: '2025-11-01T00:00:00Z' returns clients modified after Nov 1, 2025. For last 30 days, calculate: new Date(Date.now() - 30*24*60*60*1000).toISOString()"
+          ),
         offset: z
           .number()
           .optional()
@@ -46,8 +48,8 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
       execute: async (params) => {
         const queryString = buildQueryString({
           ...params,
-          limit: params.limit ?? 100,
           offset: params.offset ?? 0,
+          includeInactive: false,
         });
         return await mindbodyFetch(
           `/client/clients${queryString}`,
@@ -60,7 +62,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getClientServices: tool({
       description:
-        "Get services, packages, and memberships for a specific client. Requires clientId.",
+        "Get services, packages, and memberships for a specific client. ⚠️ REQUIRES clientId - You MUST call getClients first to obtain the clientId before calling this tool.",
       parameters: z.object({
         clientId: z.string().describe("The client's unique ID - REQUIRED"),
         classId: z.number().optional().describe("Filter by specific class ID"),
@@ -106,7 +108,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getClientCompleteInfo: tool({
       description:
-        "Get comprehensive information about a specific client including memberships, contracts, and services. Requires clientId.",
+        "Get comprehensive information about a specific client including memberships, contracts, and services. ⚠️ REQUIRES clientId - You MUST call getClients first to obtain the clientId before calling this tool.",
       parameters: z.object({
         clientId: z.string().describe("The client's unique ID - REQUIRED"),
         crossRegionalLookup: z
@@ -141,7 +143,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getActiveClientMemberships: tool({
       description:
-        "Get active memberships for a specific client. Requires clientId.",
+        "Get active memberships for a specific client. ⚠️ REQUIRES clientId - You MUST call getClients first to obtain the clientId before calling this tool.",
       parameters: z.object({
         clientId: z.string().describe("The client's unique ID - REQUIRED"),
         locationId: z.number().optional().describe("Filter by location ID"),
@@ -171,7 +173,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getActiveClientsMemberships: tool({
       description:
-        "Get active memberships for multiple clients. Requires clientIds array.",
+        "Get active memberships for multiple clients. ⚠️ REQUIRES clientIds array - You MUST call getClients first to obtain the client IDs before calling this tool.",
       parameters: z.object({
         clientIds: z
           .array(z.string())
@@ -203,14 +205,21 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getClientPurchases: tool({
       description:
-        "Get purchase history for a specific client. Requires clientId.",
+        "Get purchase history for a specific client. ⚠️ REQUIRES clientId - You MUST call getClients first to obtain the clientId before calling this tool. Use startDate/endDate to filter purchases within a date range (e.g., last 30 days).",
       parameters: z.object({
         clientId: z.string().describe("The client's unique ID - REQUIRED"),
         startDate: z
           .string()
           .optional()
-          .describe("Start date filter (ISO 8601)"),
-        endDate: z.string().optional().describe("End date filter (ISO 8601)"),
+          .describe(
+            "Start date filter (ISO 8601) - only returns purchases on or after this date. Example: '2025-11-01T00:00:00Z'"
+          ),
+        endDate: z
+          .string()
+          .optional()
+          .describe(
+            "End date filter (ISO 8601) - only returns purchases on or before this date. Example: '2025-11-30T23:59:59Z'"
+          ),
         saleId: z.number().optional().describe("Filter by specific sale ID"),
         limit: z
           .number()
@@ -238,7 +247,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getClientSchedule: tool({
       description:
-        "Get scheduled classes and appointments for a specific client. Requires clientId.",
+        "Get scheduled classes and appointments for a specific client. ⚠️ REQUIRES clientId - You MUST call getClients first to obtain the clientId before calling this tool.",
       parameters: z.object({
         clientId: z.string().describe("The client's unique ID - REQUIRED"),
         startDate: z.string().optional().describe("Start date (ISO 8601)"),
@@ -269,7 +278,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getClientVisits: tool({
       description:
-        "Get visit history for a specific client. Requires clientId.",
+        "Get visit history for a specific client. ⚠️ REQUIRES clientId - You MUST call getClients first to obtain the clientId before calling this tool.",
       parameters: z.object({
         clientId: z.string().describe("The client's unique ID - REQUIRED"),
         startDate: z.string().optional().describe("Start date (ISO 8601)"),
@@ -304,7 +313,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getContactLogs: tool({
       description:
-        "Get contact logs for clients. Optionally filter by clientId.",
+        "Get contact logs for clients. Optionally filter by clientId (if filtering by client, call getClients first to get the clientId).",
       parameters: z.object({
         clientId: z.string().optional().describe("Filter by client ID"),
         staffIds: z
@@ -485,7 +494,7 @@ export function createMindbodyTools(credentials: MindbodyCredentials) {
 
     getTransactions: tool({
       description:
-        "Get financial transaction records. Use to see payment transactions.",
+        "Get financial transaction records. Use to see payment transactions. Note: If you need to filter by specific client(s), call getClients first to obtain client IDs, then use the clientId parameter.",
       parameters: z.object({
         transactionId: z
           .number()

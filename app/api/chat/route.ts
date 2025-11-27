@@ -81,11 +81,23 @@ export async function POST(req: Request) {
       const { generateText } = await import("ai");
 
       const toolSelectionResult = await generateText({
-        model: openrouter(DEFAULT_MODEL),
-        prompt: `Analyze query and select tools. Make sure to include the getClients tool if we need a client id for the other tools. CHECK: Is a specific client NAME mentioned?
+        model: openrouter("x-ai/grok-4.1-fast:free"),
+        prompt: `Analyze query and select tools.
+
+CRITICAL RULE: If ANY of these selected tools require clientId or clientIds parameters, "getClients" **must** be in your selection FIRST.
+
+Tools that ABSOLUTELY REQUIRE getClients first (require clientId/clientIds):
+- getClientServices, getClientCompleteInfo, getActiveClientMemberships, getActiveClientsMemberships
+- getClientPurchases, getClientSchedule, getClientVisits
+
+
+Any tool with "⚠️ REQUIRES clientId" in its description MUST be preceded by getClients. Get Clients always comes first.
+
 USER QUERY: "${lastUserMessage}"
+
 AVAILABLE TOOLS:
 ${allToolNames.join(", ")}
+
 OUTPUT (JSON only):
 {"tools": ["tool1", "tool2"], "reasoning": "why"}`,
         temperature: 0.1,
@@ -164,95 +176,19 @@ OUTPUT (JSON only):
             execute: async (params: Record<string, unknown>) => {
               console.log(`[Tool Validation] ${name} called with:`, params);
 
-              // Check for completely empty params on tools that require IDs (OLD TOOLS - shouldn't be used)
-              const clientIdRequiredTools = [
-                "getClientVisits",
-                "getClientServices",
-                "getClientSchedule",
-                "getClientPurchases",
-                "getActiveClientMemberships",
-                "getClientCompleteInfo",
-                "getClientContracts",
-                "getClientRewards",
-                "addClientToClass", // Requires both clientId AND classId
-              ];
-
-              const clientIdsRequiredTools = [
-                "getClientAccountBalances",
-                "getActiveClientsMemberships",
-              ];
-
-              // Validate tools that require clientId
-              if (clientIdRequiredTools.includes(name)) {
-                if (!params || !params.clientId || params.clientId === "") {
-                  console.error(
-                    `[Tool Validation] ❌ ${name} called without required clientId!`,
-                    "Params received:",
-                    JSON.stringify(params)
-                  );
-                  return {
-                    error: `❌ CRITICAL ERROR: ${name} requires a clientId parameter but none was provided.`,
-                    instructions: [
-                      "🚫 DO NOT call this tool again without a clientId.",
-                      "✅ Step 1: Ask the user which client they want information for (if not specified)",
-                      "✅ Step 2: Use getClients tool with searchText parameter to find the client",
-                      "✅ Step 3: Extract the client ID from the response",
-                      "✅ Step 4: Call this tool again with the clientId parameter",
-                    ],
-                    example: `First call: getClients({ searchText: "John Doe" }), then call ${name}({ clientId: "obtained_id" })`,
-                    requiredParameters: ["clientId"],
-                    receivedParameters: Object.keys(params || {}),
-                  };
-                }
+              // Coerce clientId to string if it's a number
+              if ("clientId" in params && typeof params.clientId === "number") {
+                params.clientId = String(params.clientId);
+                console.log(
+                  `[Tool Validation] Coerced clientId to string: ${params.clientId}`
+                );
               }
 
-              // Special validation for addClientToClass - requires BOTH clientId AND classId
-              if (name === "addClientToClass") {
-                if (!params?.classId) {
-                  console.error(
-                    `[Tool Validation] ❌ addClientToClass called without required classId!`,
-                    "Params received:",
-                    JSON.stringify(params)
-                  );
-                  return {
-                    error: `❌ CRITICAL ERROR: addClientToClass requires BOTH clientId AND classId parameters.`,
-                    instructions: [
-                      "🚫 DO NOT call this tool again without both parameters.",
-                      "✅ Step 1: Use getClients to find the client ID",
-                      "✅ Step 2: Use getClasses to find the class ID",
-                      "✅ Step 3: Call addClientToClass with both IDs",
-                    ],
-                    example: `addClientToClass({ clientId: "client_id", classId: 12345 })`,
-                    requiredParameters: ["clientId", "classId"],
-                    receivedParameters: Object.keys(params || {}),
-                  };
-                }
-              }
-
-              // Validate tools that require clientIds array
-              if (clientIdsRequiredTools.includes(name)) {
-                const clientIds = params?.clientIds;
-                if (
-                  !params ||
-                  !clientIds ||
-                  (Array.isArray(clientIds) && clientIds.length === 0)
-                ) {
-                  console.error(
-                    `[Tool Validation] ❌ ${name} called without required clientIds array!`,
-                    "Params received:",
-                    JSON.stringify(params)
-                  );
-                  return {
-                    error: `❌ CRITICAL ERROR: ${name} requires a clientIds array parameter but none was provided.`,
-                    instructions: [
-                      "🚫 DO NOT call this tool again without clientIds.",
-                      "✅ Use getClients tool first to find client IDs, then provide them as an array",
-                    ],
-                    example: `First call: getClients({ searchText: "name" }), then call ${name}({ clientIds: ["id1", "id2"] })`,
-                    requiredParameters: ["clientIds"],
-                    receivedParameters: Object.keys(params || {}),
-                  };
-                }
+              // Also handle clientIds array
+              if ("clientIds" in params && Array.isArray(params.clientIds)) {
+                params.clientIds = params.clientIds.map((id) =>
+                  typeof id === "number" ? String(id) : id
+                );
               }
 
               // All validation passed, execute the original tool
@@ -271,16 +207,40 @@ OUTPUT (JSON only):
 
 Today's date is ${today}. When users ask about dates like "today", "tomorrow", "this week", etc., calculate the appropriate dates based on today's date.
 
-You have access to Mindbody data through various tools. Use them to:
-- View and manage class schedules
-- Search for and manage client information
-- Check staff schedules and information
-- View studio locations
-- Access waitlists and bookings
-- See services and packages
+system: 
 
-IMPORTANT - Always use reasonable limits:
-- Warn users that getting "all" records may take longer
+🔴🔴🔴 CRITICAL TOOL CALLING RULES - READ CAREFULLY 🔴🔴🔴
+
+1. PARAMETER EXTRACTION IS MANDATORY:
+   - When user mentions a name like "Mike Allen" → extract it as searchText
+   - NEVER call getClients with empty {} when user provided a name
+   - Example: "purchases for Mike Allen" → getClients({ searchText: "Mike Allen" })
+
+2. TOOL CHAINING IS MANDATORY:
+   - After getClients returns results, EXTRACT the clientId from the response
+   - Use that clientId in the next tool call
+   - Example flow:
+     Step 1: getClients({ searchText: "Mike Allen" }) → returns { Clients: [{ Id: "12345", ... }] }
+     Step 2: getClientPurchases({ clientId: "12345" })  ← USE THE ID FROM STEP 1
+
+3. NEVER call a tool with empty {} if:
+   - User provided a name (use searchText)
+   - Previous tool returned an ID you need (use clientId)
+
+TOOL USAGE EXAMPLES:
+- User: "get purchases for Mike Allen" 
+  → First call: getClients({ searchText: "Mike Allen" })
+  → Then call: getClientPurchases({ clientId: "<id from above>" })
+
+- User: "show me Jane Doe's schedule"
+  → First call: getClients({ searchText: "Jane Doe" })
+  → Then call: getClientSchedule({ clientId: "<id from above>" })
+
+🔴 CRITICAL: When calling getClients for "new clients", "recent clients", or clients from "last X days/weeks/months":
+  1. Calculate the date: new Date(Date.now() - X*24*60*60*1000).toISOString()
+  2. Pass it as lastModifiedDate parameter to getClients
+  3. Example: For "last 30 days", use: lastModifiedDate: new Date(Date.now() - 30*24*60*60*1000).toISOString()
+  4. NEVER call getClients without lastModifiedDate when the user asks for new/recent clients
 
 When presenting data:
 - Format dates and times in a user-friendly way
@@ -294,7 +254,6 @@ For date parameters:
 - Use YYYY-MM-DD for dates only
 - Calculate date ranges appropriately (e.g., "this week" = next 7 days)
 
-
 When you encounter errors:
 - If a search* tool returns success: false with an error, it means the client wasn't found
   → Ask the user to verify the spelling or provide more details
@@ -305,7 +264,7 @@ Be conversational, helpful, and proactive in suggesting relevant information.`,
         messages: convertToCoreMessages(messages),
         tools: validatedTools,
         maxSteps: 10,
-        temperature: 0.5,
+        temperature: 0.2,
         onError: (error) => {
           console.error("[Chat API] Stream error:", error);
         },

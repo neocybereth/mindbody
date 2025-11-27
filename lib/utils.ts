@@ -1,5 +1,5 @@
 // Default model for OpenRouter
-export const DEFAULT_MODEL = "x-ai/grok-4.1-fast:free";
+export const DEFAULT_MODEL = "anthropic/claude-3-haiku";
 
 // Format dates for display
 export function formatDate(dateString: string): string {
