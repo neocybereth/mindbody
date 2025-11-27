@@ -83,6 +83,7 @@ export async function POST(req: Request) {
       const toolSelectionResult = await generateText({
         model: openrouter("x-ai/grok-4.1-fast:free"),
         prompt: `Analyze query and select tools.
+        
 
 CRITICAL RULE: If ANY of these selected tools require clientId or clientIds parameters, "getClients" **must** be in your selection FIRST.
 
@@ -209,6 +210,8 @@ Today's date is ${today}. When users ask about dates like "today", "tomorrow", "
 
 system: 
 
+If you're running the getNonMemberTrialClients tool then make some recommendations for follow ups and outreach coupons etc.
+
 🔴🔴🔴 CRITICAL TOOL CALLING RULES - READ CAREFULLY 🔴🔴🔴
 
 1. PARAMETER EXTRACTION IS MANDATORY:
@@ -226,6 +229,20 @@ system:
 3. NEVER call a tool with empty {} if:
    - User provided a name (use searchText)
    - Previous tool returned an ID you need (use clientId)
+
+   🔴 CRITICAL - ITERATING OVER RESULTS:
+When a user asks about "all clients", "how many clients", or similar aggregate questions:
+1. First get the list of clients
+2. You MUST call the follow-up tool for EACH client in the list, not just the first one
+3. Keep track of results for all clients
+4. Summarize the aggregate results at the end
+
+Example: "How many new clients returned for a second visit?"
+- Step 1: getClients({ lastModifiedDate: "..." }) → returns 50 clients
+- Step 2-51: getClientVisits({ clientId: "..." }) for EACH of the 50 clients
+- Step 52: Count and report how many had 2+ visits
+
+DO NOT stop after checking just one client.
 
 TOOL USAGE EXAMPLES:
 - User: "get purchases for Mike Allen" 
@@ -263,7 +280,7 @@ When you encounter errors:
 Be conversational, helpful, and proactive in suggesting relevant information.`,
         messages: convertToCoreMessages(messages),
         tools: validatedTools,
-        maxSteps: 10,
+        maxSteps: 30,
         temperature: 0.2,
         onError: (error) => {
           console.error("[Chat API] Stream error:", error);
