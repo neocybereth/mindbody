@@ -91,7 +91,7 @@ export async function POST(req: Request) {
         messages: convertToCoreMessages(cleanedMessages),
         tools: allTools,
         maxSteps: 30,
-        temperature: 0.3,
+        temperature: 0.1,
         onError: (error) => {
           console.error("[Chat API] Stream error:", error);
         },

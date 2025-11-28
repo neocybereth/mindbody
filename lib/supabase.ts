@@ -14,3 +14,6 @@ export function getSupabaseClient() {
   return createClient(supabaseUrl, supabaseKey);
 }
 
+
+
+

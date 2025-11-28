@@ -6,36 +6,6 @@ import { ErrorDisplay } from "./ErrorDisplay";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-// Metric card component for dashboard
-function MetricCard({
-  title,
-  value,
-  icon,
-  color,
-  subtitle,
-}: {
-  title: string;
-  value: string;
-  icon: string;
-  color: string;
-  subtitle?: string;
-}) {
-  return (
-    <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
-          <div className="flex items-baseline gap-2">
-            <span className={`text-3xl font-bold ${color}`}>{value}</span>
-          </div>
-          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
-        </div>
-        <div className={`text-4xl ${color} opacity-80`}>{icon}</div>
-      </div>
-    </div>
-  );
-}
-
 // Tool call display component
 function ToolCallDisplay({ toolCall }: { toolCall: any }) {
   const getToolInfo = (toolName: string) => {
@@ -157,14 +127,14 @@ export default function Chat() {
       },
     });
 
-  // Sample prompts for quick access
+  // Sample prompts for quick access - focused on data insights
   const samplePrompts = [
-    { text: "Show me today's classes", icon: "📅" },
-    { text: "Find a client by name", icon: "👥" },
-    { text: "Who's on the waitlist?", icon: "⏳" },
-    { text: "Show me all staff members", icon: "👔" },
-    { text: "What are our locations?", icon: "📍" },
-    { text: "Show available services", icon: "💼" },
+    { text: "Show me our executive summary", icon: "📋" },
+    { text: "Find clients at risk of churning", icon: "⚠️" },
+    { text: "Who are our high-value non-members?", icon: "💎" },
+    { text: "Show clients with expiring class cards", icon: "⏰" },
+    { text: "Compare members vs non-members", icon: "⚖️" },
+    { text: "Analyze our signup trends", icon: "📈" },
   ];
 
   return (
@@ -234,43 +204,6 @@ export default function Chat() {
                     </p>
                   </button>
                 ))}
-              </div>
-            </div>
-
-            {/* Info Cards */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">
-                Available Features
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <MetricCard
-                  title="Classes"
-                  value="📅"
-                  icon="📚"
-                  color="text-blue-600"
-                  subtitle="View schedules & bookings"
-                />
-                <MetricCard
-                  title="Clients"
-                  value="👥"
-                  icon="📊"
-                  color="text-green-600"
-                  subtitle="Manage client data"
-                />
-                <MetricCard
-                  title="Staff"
-                  value="👔"
-                  icon="🗓️"
-                  color="text-purple-600"
-                  subtitle="Staff schedules & info"
-                />
-                <MetricCard
-                  title="Services"
-                  value="💼"
-                  icon="📦"
-                  color="text-orange-600"
-                  subtitle="Packages & offerings"
-                />
               </div>
             </div>
           </div>

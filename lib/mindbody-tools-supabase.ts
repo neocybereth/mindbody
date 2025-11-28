@@ -13,6 +13,41 @@ function handleSupabaseError(error: unknown, context: string) {
 }
 
 // ============================================
+// HELPER: Normalize Order By and Direction
+// ============================================
+type OrderDirection = "asc" | "desc";
+
+function normalizeOrderBy(raw?: string): string {
+  if (!raw) return "lifetime_value";
+  // "lifetime_value DESC" → "lifetime_value"
+  const base = raw.trim().split(/\s+/)[0];
+  return base || "lifetime_value";
+}
+
+function normalizeOrderDirection(
+  rawDirection?: string,
+  rawOrderBy?: string
+): OrderDirection {
+  // First check if explicit direction was provided
+  if (rawDirection) {
+    return rawDirection.toLowerCase() === "asc" ? "asc" : "desc";
+  }
+
+  // If no explicit direction, check if order_by contains DESC/ASC
+  if (rawOrderBy) {
+    const parts = rawOrderBy.trim().split(/\s+/);
+    if (parts.length > 1) {
+      const direction = parts[1].toLowerCase();
+      if (direction === "asc") return "asc";
+      if (direction === "desc") return "desc";
+    }
+  }
+
+  // Default to desc
+  return "desc";
+}
+
+// ============================================
 // SHARED FILTER SCHEMA
 // ============================================
 const clientFiltersSchema = z.object({
@@ -63,7 +98,13 @@ const clientFiltersSchema = z.object({
     ),
 
   // Status
-  is_active: z.boolean().optional(),
+  is_active: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      "Filter by active status. Defaults to true (active clients only)"
+    ),
   is_prospect: z.boolean().optional(),
   status: z.string().optional().describe("e.g., 'Non-Member', 'Member'"),
   visit_frequency: z
@@ -215,6 +256,10 @@ export function createSupabaseTools(supabase: SupabaseClient) {
     // ============================================
     searchClients: tool({
       description: `🔍 FLEXIBLE CLIENT SEARCH - Find clients using any combination of filters.
+
+⚠️ DEFAULTS:
+- Searches ACTIVE clients only (is_active: true). To include inactive clients, set is_active: false.
+- Returns ALL matching records (no limit). To limit results, specify a limit parameter.
       
 COMMON USE CASES:
 - At-risk clients: { days_since_last_visit_min: 30, visits_last_365_days_min: 1 }
@@ -241,18 +286,26 @@ COMMON USE CASES:
         order_by: z
           .string()
           .optional()
-          .default("lifetime_value")
-          .describe("Field to sort by"),
-        order_direction: z.enum(["asc", "desc"]).optional().default("desc"),
-        limit: z.number().optional().default(50),
+          .describe(
+            "Column to order by. Do NOT include ASC/DESC; use order_direction."
+          ),
+        order_direction: z.enum(["asc", "desc"]).optional(),
+        limit: z
+          .number()
+          .optional()
+          .describe(
+            "Maximum number of results to return. If not specified, returns ALL matching records."
+          ),
         offset: z.number().optional().default(0),
       }),
 
       execute: async (params) => {
         // Default fields if not specified
         const defaultFields = [
-          "id",
-          "full_name",
+          "idx",
+          "mindbody_client_id",
+          "first_name",
+          "last_name",
           "email",
           "mobile_phone",
           "status",
@@ -268,29 +321,45 @@ COMMON USE CASES:
         const selectFields = params.return_fields?.join(",") || defaultFields;
 
         let query = supabase
-          .from("clients")
+          .from("mindbody_clients")
           .select(selectFields, { count: "exact" });
 
         // Text search
         if (params.search_text) {
           const term = params.search_text;
           query = query.or(
-            `full_name.ilike.%${term}%,email.ilike.%${term}%,mobile_phone.ilike.%${term}%,home_phone.ilike.%${term}%`
+            `first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%,mobile_phone.ilike.%${term}%,home_phone.ilike.%${term}%`
           );
         }
 
-        // Apply all filters
-        if (params.filters) {
-          query = applyClientFilters(query, params.filters);
-        }
+        // Apply all filters with default for is_active
+        const filtersWithDefaults = {
+          ...params.filters,
+          // Default to active clients only unless explicitly set to false or null
+          is_active:
+            params.filters?.is_active !== undefined
+              ? params.filters.is_active
+              : true,
+        };
+        query = applyClientFilters(query, filtersWithDefaults);
 
         // Ordering
-        query = query.order(params.order_by!, {
-          ascending: params.order_direction === "asc",
+        const orderBy = normalizeOrderBy(params.order_by);
+        const orderDirection = normalizeOrderDirection(
+          params.order_direction,
+          params.order_by
+        );
+        query = query.order(orderBy, {
+          ascending: orderDirection === "asc",
         });
 
-        // Pagination
-        query = query.range(params.offset!, params.offset! + params.limit! - 1);
+        // Pagination - only apply range if limit is specified
+        if (params.limit !== undefined) {
+          query = query.range(
+            params.offset!,
+            params.offset! + params.limit - 1
+          );
+        }
 
         const { data, count, error } = await query;
         handleSupabaseError(error, "searchClients");
@@ -310,6 +379,8 @@ COMMON USE CASES:
     // ============================================
     aggregateClients: tool({
       description: `📊 AGGREGATE METRICS - Calculate counts, averages, and totals for client segments.
+
+⚠️ DEFAULT: Searches ACTIVE clients only (is_active: true). To include inactive clients, set is_active: false.
 
 COMMON USE CASES:
 - "How many active members?" → metrics: ["count"], filters: { membership_status: "member" }
@@ -355,7 +426,7 @@ COMMON USE CASES:
         // If grouping, we need to fetch and aggregate in JS
         // Supabase doesn't support GROUP BY directly in the client
 
-        let query = supabase.from("clients").select(
+        let query = supabase.from("mindbody_clients").select(
           `
           status,
           has_active_membership,
@@ -372,9 +443,16 @@ COMMON USE CASES:
         `
         );
 
-        if (params.filters) {
-          query = applyClientFilters(query, params.filters);
-        }
+        // Apply filters with default for is_active
+        const filtersWithDefaults = {
+          ...params.filters,
+          // Default to active clients only unless explicitly set to false or null
+          is_active:
+            params.filters?.is_active !== undefined
+              ? params.filters.is_active
+              : true,
+        };
+        query = applyClientFilters(query, filtersWithDefaults);
 
         const { data, error } = await query;
         handleSupabaseError(error, "aggregateClients");
@@ -476,6 +554,10 @@ COMMON USE CASES:
     queryClientServices: tool({
       description: `📦 QUERY SERVICES/CLASS CARDS - Search client services including expiration dates and usage.
 
+⚠️ DEFAULTS:
+- Searches ACTIVE clients only (is_active: true). To include inactive clients, set is_active: false.
+- Returns ALL matching services (no limit). To limit results, specify a limit parameter.
+
 COMMON USE CASES:
 - Expiring soon: { expiring_within_days: 30 }
 - Unused packages: { is_fully_unused: true }
@@ -513,21 +595,33 @@ COMMON USE CASES:
           .enum(["expiration_date", "remaining", "client_name"])
           .optional()
           .default("expiration_date"),
-        limit: z.number().optional().default(50),
+        limit: z
+          .number()
+          .optional()
+          .describe(
+            "Maximum number of results to return. If not specified, returns ALL matching services."
+          ),
       }),
 
       execute: async (params) => {
         // Fetch clients with services
         let query = supabase
-          .from("clients")
+          .from("mindbody_clients")
           .select(
-            "id, full_name, email, mobile_phone, lifetime_value, services"
+            "idx, mindbody_client_id, first_name, last_name, email, mobile_phone, lifetime_value, services"
           )
           .neq("services", "[]");
 
-        if (params.client_filters) {
-          query = applyClientFilters(query, params.client_filters);
-        }
+        // Apply filters with default for is_active
+        const filtersWithDefaults = {
+          ...params.client_filters,
+          // Default to active clients only unless explicitly set to false or null
+          is_active:
+            params.client_filters?.is_active !== undefined
+              ? params.client_filters.is_active
+              : true,
+        };
+        query = applyClientFilters(query, filtersWithDefaults);
 
         const { data: clients, error } = await query;
         handleSupabaseError(error, "queryClientServices");
@@ -536,8 +630,9 @@ COMMON USE CASES:
 
         const now = new Date();
         const results: Array<{
-          client_id: string;
-          full_name: string;
+          idx: number;
+          mindbody_client_id: string;
+          client_name: string;
           email: string | null;
           mobile_phone: string | null;
           service_name: string;
@@ -627,8 +722,11 @@ COMMON USE CASES:
             }
 
             results.push({
-              client_id: client.id,
-              full_name: client.full_name,
+              idx: client.idx,
+              mindbody_client_id: client.mindbody_client_id,
+              client_name: `${client.first_name || ""} ${
+                client.last_name || ""
+              }`.trim(),
               email: client.email,
               mobile_phone: client.mobile_phone,
               service_name: svc.Name || "Unknown",
@@ -652,12 +750,19 @@ COMMON USE CASES:
         } else if (params.order_by === "remaining") {
           results.sort((a, b) => a.remaining_classes - b.remaining_classes);
         } else if (params.order_by === "client_name") {
-          results.sort((a, b) => a.full_name.localeCompare(b.full_name));
+          results.sort((a, b) => a.client_name.localeCompare(b.client_name));
         }
 
         return {
-          services: results.slice(0, params.limit),
+          services:
+            params.limit !== undefined
+              ? results.slice(0, params.limit)
+              : results,
           total_count: results.length,
+          returned_count:
+            params.limit !== undefined
+              ? Math.min(results.length, params.limit)
+              : results.length,
           filters_applied: params.service_filters,
         };
       },
@@ -674,7 +779,7 @@ Use when: User asks about a specific person by name, email, or ID.`,
 
       parameters: z.object({
         search_by: z
-          .enum(["id", "mindbody_client_id", "email", "name"])
+          .enum(["idx", "mindbody_client_id", "email", "name"])
           .describe("How to find the client"),
         search_value: z.string().describe("The value to search for"),
         include_json_data: z
@@ -685,11 +790,11 @@ Use when: User asks about a specific person by name, email, or ID.`,
       }),
 
       execute: async (params) => {
-        let query = supabase.from("clients").select("*");
+        let query = supabase.from("mindbody_clients").select("*");
 
         switch (params.search_by) {
-          case "id":
-            query = query.eq("id", params.search_value);
+          case "idx":
+            query = query.eq("idx", params.search_value);
             break;
           case "mindbody_client_id":
             query = query.eq("mindbody_client_id", params.search_value);
@@ -698,7 +803,9 @@ Use when: User asks about a specific person by name, email, or ID.`,
             query = query.ilike("email", params.search_value);
             break;
           case "name":
-            query = query.ilike("full_name", `%${params.search_value}%`);
+            query = query.or(
+              `first_name.ilike.%${params.search_value}%,last_name.ilike.%${params.search_value}%`
+            );
             break;
         }
 
@@ -771,7 +878,7 @@ COMMON USE CASES:
 
       execute: async (params) => {
         const fetchSegment = async (filters: ClientFilters) => {
-          let query = supabase.from("clients").select(
+          let query = supabase.from("mindbody_clients").select(
             `
             total_visits,
             lifetime_value,
@@ -782,7 +889,14 @@ COMMON USE CASES:
           `
           );
 
-          query = applyClientFilters(query, filters);
+          // Apply filters with default for is_active
+          const filtersWithDefaults = {
+            ...filters,
+            // Default to active clients only unless explicitly set to false or null
+            is_active:
+              filters?.is_active !== undefined ? filters.is_active : true,
+          };
+          query = applyClientFilters(query, filtersWithDefaults);
           const { data, error } = await query;
           handleSupabaseError(error, "compareSegments");
           return data || [];
@@ -904,7 +1018,7 @@ Use for: Tracking if onboarding/conversion is improving over time.`,
         }
 
         let query = supabase
-          .from("clients")
+          .from("mindbody_clients")
           .select(
             `
             creation_date,
@@ -915,11 +1029,18 @@ Use for: Tracking if onboarding/conversion is improving over time.`,
             mobile_phone
           `
           )
-          .gte("creation_date", startDate.toISOString());
+          .gte("creation_date", startDate!.toISOString());
 
-        if (params.filters) {
-          query = applyClientFilters(query, params.filters);
-        }
+        // Apply filters with default for is_active
+        const filtersWithDefaults = {
+          ...params.filters,
+          // Default to active clients only unless explicitly set to false or null
+          is_active:
+            params.filters?.is_active !== undefined
+              ? params.filters.is_active
+              : true,
+        };
+        query = applyClientFilters(query, filtersWithDefaults);
 
         const { data, error } = await query;
         handleSupabaseError(error, "cohortAnalysis");
@@ -1032,7 +1153,10 @@ Returns: Total clients, members, revenue, engagement stats, and health indicator
       }),
 
       execute: async () => {
-        const { data, error } = await supabase.from("clients").select(`
+        const { data, error } = await supabase
+          .from("mindbody_clients")
+          .select(
+            `
           total_visits,
           visits_last_30_days,
           visits_last_90_days,
@@ -1044,7 +1168,9 @@ Returns: Total clients, members, revenue, engagement stats, and health indicator
           email,
           mobile_phone,
           creation_date
-        `);
+        `
+          )
+          .eq("is_active", true); // Default to active clients only
 
         handleSupabaseError(error, "getExecutiveSummary");
 
