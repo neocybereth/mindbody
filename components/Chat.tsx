@@ -1,13 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useChat } from "ai/react";
 import { ErrorDisplay } from "./ErrorDisplay";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useRouter } from "next/navigation";
 
 // Tool call display component
-function ToolCallDisplay({ toolCall }: { toolCall: any }) {
+function ToolCallDisplay({
+  toolCall,
+}: {
+  toolCall: { toolName: string; toolCallId: string };
+}) {
   const getToolInfo = (toolName: string) => {
     const toolInfo: Record<
       string,
@@ -116,8 +121,27 @@ function ToolCallDisplay({ toolCall }: { toolCall: any }) {
   );
 }
 
+// Client search result type
+type ClientSearchResult = {
+  idx: number;
+  mindbody_client_id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  mobile_phone: string | null;
+  status: string;
+};
+
 export default function Chat() {
+  const router = useRouter();
   const [showDashboard, setShowDashboard] = useState(true);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
+  const [clientSearchResults, setClientSearchResults] = useState<
+    ClientSearchResult[]
+  >([]);
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
 
   const { messages, input, handleInputChange, handleSubmit, isLoading, error } =
     useChat({
@@ -126,6 +150,56 @@ export default function Chat() {
         console.error("[Frontend] Chat error:", error);
       },
     });
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(event.target as Node)
+      ) {
+        setShowClientDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Search for clients
+  useEffect(() => {
+    const searchClients = async () => {
+      if (clientSearchQuery.trim().length < 2) {
+        setClientSearchResults([]);
+        setShowClientDropdown(false);
+        return;
+      }
+
+      setIsSearching(true);
+      try {
+        const response = await fetch(
+          `/api/search-clients?q=${encodeURIComponent(clientSearchQuery)}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setClientSearchResults(data.clients || []);
+          setShowClientDropdown(true);
+        }
+      } catch (error) {
+        console.error("Client search error:", error);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    const debounce = setTimeout(searchClients, 300);
+    return () => clearTimeout(debounce);
+  }, [clientSearchQuery]);
+
+  const handleClientSelect = (client: ClientSearchResult) => {
+    setClientSearchQuery("");
+    setShowClientDropdown(false);
+    router.push(`/client/${client.idx}`);
+  };
 
   // Sample prompts for quick access - focused on data insights
   const samplePrompts = [
@@ -179,6 +253,68 @@ export default function Chat() {
               </p>
             </div>
 
+            {/* Client Search */}
+            <div className="mb-6" ref={searchRef}>
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                🔍 Search Clients
+              </h3>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={clientSearchQuery}
+                  onChange={(e) => setClientSearchQuery(e.target.value)}
+                  placeholder="Search by name, email, or phone..."
+                  className="w-full px-6 py-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 placeholder-gray-400 text-base bg-white shadow-sm"
+                />
+                {isSearching && (
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                    <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                )}
+                {showClientDropdown && clientSearchResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-96 overflow-y-auto">
+                    {clientSearchResults.map((client) => (
+                      <button
+                        key={client.idx}
+                        onClick={() => handleClientSelect(client)}
+                        className="w-full px-6 py-4 text-left hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-b-0 first:rounded-t-xl last:rounded-b-xl"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="font-semibold text-gray-900">
+                              {client.first_name} {client.last_name}
+                            </div>
+                            <div className="text-sm text-gray-600 mt-1">
+                              {client.email && (
+                                <div className="flex items-center gap-1">
+                                  <span>📧</span>
+                                  <span>{client.email}</span>
+                                </div>
+                              )}
+                              {client.mobile_phone && (
+                                <div className="flex items-center gap-1">
+                                  <span>📱</span>
+                                  <span>{client.mobile_phone}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                            {client.status}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showClientDropdown && clientSearchResults.length === 0 && (
+                  <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl p-6 text-center text-gray-500">
+                    No clients found matching &ldquo;{clientSearchQuery}&rdquo;
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Quick Actions */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4">
@@ -191,7 +327,7 @@ export default function Chat() {
                     onClick={() => {
                       handleInputChange({
                         target: { value: prompt.text },
-                      } as any);
+                      } as React.ChangeEvent<HTMLInputElement>);
                       setShowDashboard(false);
                     }}
                     className="bg-white rounded-xl p-4 hover:shadow-lg transition-all text-left group border border-gray-100"
@@ -260,7 +396,7 @@ export default function Chat() {
                               remarkPlugins={[remarkGfm]}
                               components={{
                                 table: ({ children }) => (
-                                  <div className="my-4 overflow-x-auto rounded-lg shadow-lg border border-gray-200">
+                                  <div className="my-4 overflow-x-auto rounded-lg shadow-lg border border-gray-200 max-w-full">
                                     <table className="min-w-full divide-y divide-gray-200 bg-white">
                                       {children}
                                     </table>
@@ -450,11 +586,16 @@ export default function Chat() {
                         )}
 
                         {/* Tool invocations */}
-                        {message.toolInvocations?.map((toolCall: any) => (
-                          <div key={toolCall.toolCallId} className="my-2">
-                            <ToolCallDisplay toolCall={toolCall} />
-                          </div>
-                        ))}
+                        {message.toolInvocations?.map(
+                          (toolCall: {
+                            toolName: string;
+                            toolCallId: string;
+                          }) => (
+                            <div key={toolCall.toolCallId} className="my-2">
+                              <ToolCallDisplay toolCall={toolCall} />
+                            </div>
+                          )
+                        )}
                       </div>
                     </div>
                   </div>

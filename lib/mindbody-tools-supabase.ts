@@ -810,7 +810,11 @@ Use when: User asks about a specific person by name, email, or ID.`,
         }
 
         const { data, error } = await query.limit(1).single();
-        handleSupabaseError(error, "getClientDetail");
+
+        // PGRST116 means no rows found - this is not an error, just means client not found
+        if (error && error.code !== "PGRST116") {
+          handleSupabaseError(error, "getClientDetail");
+        }
 
         if (!data) {
           return { found: false, message: "Client not found" };
